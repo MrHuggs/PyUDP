@@ -4,16 +4,18 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 //-----------------------------------------------------------------------------
 #define STRICT
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
 #include <windows.h>
 #include <commdlg.h>
 #include <XInput.h> // XInput API
 #include <basetsd.h>
-//#include <winsock2.h>
 #include <assert.h>
 #pragma warning( disable : 4996 ) // disable deprecated warning 
 #include <strsafe.h>
-#pragma warning( default : 4996 )
 #include "resource.h"
+#pragma comment(lib, "iphlpapi.lib")
 
 //-----------------------------------------------------------------------------
 // Function-prototypes
@@ -22,11 +24,56 @@ LRESULT WINAPI MsgProc( HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam );
 HRESULT UpdateControllerState();
 void RenderFrame();
 
+IN_ADDR GetLocalAddr()
+{
+	// This is a helper function to try and find the default network adapter. Many
+	// machines will have virtual adapter for things like VPN and the like. We are interested
+	// in the adapter whose address is of the form 192.x.x.x.
+
+	PMIB_IPADDRTABLE pip_table = (MIB_IPADDRTABLE *)malloc(sizeof(MIB_IPADDRTABLE));
+
+	// Step 1: Determine the buffer size.
+	DWORD size = 0;
+	if (GetIpAddrTable(pip_table, &size, 0) == ERROR_INSUFFICIENT_BUFFER) 
+	{
+		// Step 2: no that we have the correct buffer size, allocate a suitable buffer.
+		free(pip_table);
+		assert(size);
+		pip_table = (MIB_IPADDRTABLE *) malloc(size);
+		assert(pip_table);
+	}
+	else assert(0);
+
+	// Step 3: now get the table:
+	DWORD rval = GetIpAddrTable(pip_table, &size, 0);
+	assert(rval == NO_ERROR);
+
+	IN_ADDR ip_addr;
+	for (int i = 0; ; i++)
+	{
+		if (i == pip_table->dwNumEntries)
+		{
+			// Failed to find the 192.x.x.x adpater, so just default to the first address:
+			ip_addr.S_un.S_addr = (u_long)pip_table->table[0].dwAddr;
+			break;
+		}
+
+		ip_addr.S_un.S_addr = (u_long)pip_table->table[i].dwAddr;
+		if (ip_addr.s_net == 192)
+		{
+			break;
+		}
+	}
+
+	free(pip_table);
+	return ip_addr;
+}
+
 class UDPSender
 {
 	SOCKET sendSocket;
 	SOCKADDR_IN brdCastaddr;
-	const unsigned short portNumber = 43000;
+	const unsigned short portNumber = 5005;
 public:
 
 	void init()
@@ -35,21 +82,31 @@ public:
 		WSADATA wsadata;
 		::WSAStartup(w, &wsadata);
 
+		IN_ADDR local_addr = GetLocalAddr();
+
 		sendSocket = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
 		assert(sendSocket != -1);
 
+		SOCKADDR_IN src_add;
+		src_add.sin_family = AF_INET;
+		src_add.sin_port = htons(portNumber);
+		src_add.sin_addr = local_addr; 
+		int bv =bind(sendSocket, (sockaddr *)&src_add, sizeof(src_add));
+		int le = WSAGetLastError();
+		assert(bv == 0);
+
 		char opt = 1;
 		setsockopt(sendSocket, SOL_SOCKET, SO_BROADCAST, (char*)&opt, sizeof(char));
+
 		memset(&brdCastaddr, 0, sizeof(brdCastaddr));
 		brdCastaddr.sin_family = AF_INET;
-
 		brdCastaddr.sin_port = htons(portNumber);
 		brdCastaddr.sin_addr.s_addr = INADDR_BROADCAST;
 	}
 
 	template<class T> void send(const T &t)
 	{
-		int ret = sendto(sendSocket, &t, sizeof(T), 0, (sockaddr*)&brdCastaddr, sizeof(brdCastaddr));
+		int ret = sendto(sendSocket, (char *) &t, sizeof(T), 0, (sockaddr*)&brdCastaddr, sizeof(brdCastaddr));
 		assert(ret == sizeof(T));
 	}
 };
@@ -160,7 +217,8 @@ const float nMin = -32768;
 
 struct PacketState
 {
-	
+	PacketState() { memset(this, 0, sizeof(*this)); }
+
 	static float DeadbandConvert(SHORT x)
 	{
 		float f;
@@ -192,6 +250,7 @@ struct PacketState
 	float fY;
 };
 
+PacketState lastPacketState;
 
 //-----------------------------------------------------------------------------
 void RenderFrame()
@@ -262,6 +321,14 @@ void RenderFrame()
                               g_Controllers[i].state.Gamepad.sThumbRX,
                               g_Controllers[i].state.Gamepad.sThumbRY,
 							  pstrbuf);
+			if (i == 0)
+			{
+				if (memcmp(&lastPacketState, &pstate, sizeof(pstate)) != 0)
+				{
+					udpSender.send(pstate);
+					lastPacketState = pstate;
+				}
+			}
         }
         else
         {
