@@ -252,6 +252,9 @@ struct PacketState
 
 PacketState lastPacketState;
 
+const DWORD maxWaitTicks = 500;
+DWORD lastSendTime = 0; 
+
 //-----------------------------------------------------------------------------
 void RenderFrame()
 {
@@ -323,10 +326,22 @@ void RenderFrame()
 							  pstrbuf);
 			if (i == 0)
 			{
-				if (memcmp(&lastPacketState, &pstate, sizeof(pstate)) != 0)
+				bool should_send;
+				DWORD cur_time = timeGetTime(); // Time since windows started in MS.
+
+				if (cur_time - lastSendTime > maxWaitTicks)
+					should_send = true;
+				else
+				{
+					should_send = memcmp(&lastPacketState, &pstate, sizeof(pstate)) != 0;
+				}
+
+				if (should_send)
 				{
 					udpSender.send(pstate);
 					lastPacketState = pstate;
+
+					lastSendTime = cur_time;
 				}
 			}
         }
