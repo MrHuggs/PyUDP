@@ -5,7 +5,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>ee88d8bd-74dc-4546-83f1-1c274cd22494</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>PyUDP.py</StartupFile>
+    <StartupFile>PyUDPReceive.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>

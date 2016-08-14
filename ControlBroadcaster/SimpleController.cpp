@@ -228,7 +228,8 @@ struct PacketState
 		}
 		else if (x < -nDeadband)
 		{
-			f = (-nDeadband - x) / (-nDeadband - nMin);
+			f = (-nDeadband - x) / (-nDeadband - nMin); // Get fraction of the range.
+			f = -f;
 		}
 		else f = 0;
 		return f;
