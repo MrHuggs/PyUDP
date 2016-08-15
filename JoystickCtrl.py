@@ -5,6 +5,28 @@ import gopigo
 
 controller = UDPController()
 
+def ProcessXY(x, y):
+    if y >= 0:
+        if x >= 0:
+            left = y
+            right = max(y - x, 0)
+        else:
+            right = y
+            left = max(y - x, 0)
+        fwd = 1
+    else:
+        y = -y
+        if x >= 0:
+            left = y
+            right = max(y - x, 0)
+        else:
+            right = y
+            left = max(y - x, 0)
+        fwd = 0
+
+    return [int(left), int(right), fwd]
+
+
 while(True):
     left_speed = 0
     right_speed = 0
